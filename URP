@@ -1,0 +1,131 @@
+import http.cookiejar
+from urllib.parse import urlencode
+from urllib.request import build_opener, HTTPCookieProcessor, Request
+import xlwt
+from PIL import Image
+import matplotlib.pyplot as plt
+from lxml import etree
+from bs4 import BeautifulSoup
+import xlrd  # 导入xlrd模块
+import openpyxl
+from xlutils.copy import copy
+
+cookie = http.cookiejar.CookieJar()
+opener = build_opener(HTTPCookieProcessor(cookie))
+URL='http://URP/'                   #将 URP 替换成本校的教务处地址
+loginURL = URL + 'loginAction.do'  # URP教务处登陆地址
+srcImage = URL + 'validateCodeAction.do'  # 验证码图片
+xjxxURL = URL + 'xjInfoAction.do?oper=xjxx'  # 登陆后的学籍信息
+xjPhotoURL = URL +'xjInfoAction.do?oper=img' #学籍照片
+gradeURL = URL + 'gradeLnAllAction.do?type=ln&oper=qbinfo'  # 登陆后的实际成绩显示页面
+formDate = {'zjh': '', 'mm': '', 'v_yzm': ''}
+
+
+def getAccount():
+    formDate['zjh'] = input("请输入你的学号：")
+    formDate['mm'] = input("请输入你的密码：")
+
+
+def getValidationCode():
+    picture = opener.open(srcImage).read()
+    with open('vimage.jpg', 'wb') as f:
+        f.write(picture)
+    img = Image.open('vimage.jpg')
+    plt.figure("code", figsize=(1.2, 2.4))
+    plt.axis('off')
+    plt.imshow(img)
+    plt.show()
+    formDate['v_yzm'] = input('请输入验证码：')
+
+
+def getOpener():
+    getAccount()
+    error = True
+    while error:
+        if not formDate['v_yzm'] or error:
+            getValidationCode()
+        postedData = urlencode(formDate).encode(encoding='UTF-8')
+        request = Request(loginURL, postedData)
+        loginPage = opener.open(request)
+        loginTree = etree.HTML(loginPage.read())
+        error = loginTree.xpath('//td[@class="errorTop"]')  # 验证码错误、密码错误等错误都会出现此标志
+    return opener
+    
+#获取学籍照片    
+def getXjphoto():
+    picture = opener.open(xjPhotoURL).read()
+    with open(formDate['zjh']+'.jpg','wb') as f:
+        f.write(picture)
+        
+        
+def getxjxxPage():
+    getXjphoto()
+    html = opener.open(xjxxURL)
+    main = html.read().decode('gbk')
+    soup = BeautifulSoup(main, 'lxml')
+    content = soup.find_all('td',class_="fieldName")
+    content1 = soup.find_all('td',width="275")
+    data_list = []
+    data_value = []
+    for data in content:
+        data_list.append(data.text.strip())
+    data_list.remove(data_list[2])              #删除某个空值
+    for value in content1:
+        data_value.append(value.text.strip())
+    #print(data_value)
+    datadic = dict(zip(data_list,data_value))
+    #print(datadic)
+    new_list = [data_value[i:i + 45] for i in range(0, len(data_value), 45)]
+    xls = xlwt.Workbook()
+    sheet = xls.add_sheet('sheet1', cell_overwrite_ok=True)
+    heads = data_list
+    ls = 0
+    for head in heads:
+        sheet.write(0, ls, head)
+        ls += 1
+    i = 1
+    for list in new_list:
+        j = 0
+        for data in list:
+            sheet.write(i, j, data)
+            j += 1
+        i += 1
+    xls.save(formDate['zjh']+'.xls')
+    print('学籍信息写入成功！')
+    
+    
+def getGrade():
+    html = opener.open(gradeURL)
+    main = html.read().decode('gbk')
+    soup = BeautifulSoup(main, 'lxml')
+    content = soup.find_all('td', align="center")
+    data_list = []
+    for data in content:
+        data_list.append(data.text.strip())
+    #print(data_list)
+    new_list = [data_list[i:i + 7] for i in range(0, len(data_list), 7)]
+    book = xlrd.open_workbook(formDate['zjh']+'.xls')
+    newb = copy(book)
+    sheet1 = newb.add_sheet('sheet2', cell_overwrite_ok=True)
+    heads = ['课程号', '课序号', '课程名', '英文课程名', '学分', '课程属性', '成绩']
+    print("准备将数据写入表格...")
+    ii = 0
+    for head in heads:
+        sheet1.write(0, ii, head)
+        ii += 1
+    i = 1
+    for list in new_list:
+        j = 0
+        for data in list:
+            sheet1.write(i, j, data)
+            j += 1
+        i += 1
+    newb.save(formDate['zjh'] + ".xls")
+    print('成绩写入成功！')
+
+
+getOpener()
+getxjxxPage()
+getGrade()
+
+
