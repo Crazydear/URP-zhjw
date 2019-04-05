@@ -35,8 +35,8 @@ class UrpHelper(object):
         self.cjdURL = self.URL + '/reportFiles/student/cj_zwcjd_all.jsp'        #成绩单
 
     def getAccount(self):
-        self.formData['zjh'] = self.xh  #'171011'  # input("请输入你的学号：")
-        self.formData['mm'] = self.mm#'262419'  # input("请输入你的密码：")
+        self.formData['zjh'] = self.xh  # input("请输入你的学号：")
+        self.formData['mm'] = self.mm  # input("请输入你的密码：")
 
     def getValidationCode(self):
         picture = self.opener.open(self.srcImage).read()
