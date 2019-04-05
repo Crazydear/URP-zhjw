@@ -7,125 +7,291 @@ import matplotlib.pyplot as plt
 from lxml import etree
 from bs4 import BeautifulSoup
 import xlrd  # 导入xlrd模块
-import openpyxl
 from xlutils.copy import copy
+import re
+import os
 
-cookie = http.cookiejar.CookieJar()
-opener = build_opener(HTTPCookieProcessor(cookie))
-URL='http://URP/'                   #将 URP 替换成本校的教务处地址
-loginURL = URL + 'loginAction.do'  # URP教务处登陆地址
-srcImage = URL + 'validateCodeAction.do'  # 验证码图片
-xjxxURL = URL + 'xjInfoAction.do?oper=xjxx'  # 登陆后的学籍信息
-xjPhotoURL = URL +'xjInfoAction.do?oper=img' #学籍照片
-gradeURL = URL + 'gradeLnAllAction.do?type=ln&oper=qbinfo'  # 登陆后的实际成绩显示页面
-formDate = {'zjh': '', 'mm': '', 'v_yzm': ''}
+class UrpHelper(object):
 
+    def __init__(self, xh, mm):
+        self.cookie = http.cookiejar.CookieJar()
+        self.opener = build_opener(HTTPCookieProcessor(self.cookie))  # 构建opener
+        self.xh = xh
+        self.mm = mm
+        self.formData = {'zjh': '', 'mm': '', 'v_yzm': ''}
+        self.path = os.path.abspath('.')
+        self.header_list = []
+        self.data_list = []
+        self.xq_list = []
+        self.List = []
+        self.URL = 'http://URP/'  # 将 URP 替换成本校的教务处地址
+        self.loginURL = self.URL + 'loginAction.do'  # URP教务处登陆地址
+        self.srcImage = self.URL + 'validateCodeAction.do'  # 验证码图片
+        self.indexURL = self.URL + 'menu/top.jsp'
+        self.xjxxURL = self.URL + 'xjInfoAction.do?oper=xjxx'  # 登陆后的学籍信息
+        self.xjPhotoURL = self.URL + 'xjInfoAction.do?oper=img'  # 学籍照片
+        self.gradeURL = self.URL + 'gradeLnAllAction.do?type=ln&oper=qbinfo'  # 登陆后的实际详细成绩显示页面
+        self.couseURL = self.URL + 'courseSearchAction.do'                      #课程搜索
+        self.cjdURL = self.URL + '/reportFiles/student/cj_zwcjd_all.jsp'        #成绩单
 
-def getAccount():
-    formDate['zjh'] = input("请输入你的学号：")
-    formDate['mm'] = input("请输入你的密码：")
+    def getAccount(self):
+        self.formData['zjh'] = self.xh  #'171011'  # input("请输入你的学号：")
+        self.formData['mm'] = self.mm#'262419'  # input("请输入你的密码：")
 
+    def getValidationCode(self):
+        picture = self.opener.open(self.srcImage).read()
+        with open('vimage.jpg', 'wb') as f:
+            f.write(picture)
+        img = Image.open('vimage.jpg')
+        plt.figure("code", figsize=(1.2, 2.4))
+        plt.axis('off')
+        plt.imshow(img)
+        plt.show()
+        self.formData['v_yzm'] = input('请输入验证码：')
 
-def getValidationCode():
-    picture = opener.open(srcImage).read()
-    with open('vimage.jpg', 'wb') as f:
-        f.write(picture)
-    img = Image.open('vimage.jpg')
-    plt.figure("code", figsize=(1.2, 2.4))
-    plt.axis('off')
-    plt.imshow(img)
-    plt.show()
-    formDate['v_yzm'] = input('请输入验证码：')
+    def getOpener(self):
+        self.getAccount()
+        error = True
+        while error:
+            if not self.formData['v_yzm'] or error:
+                self.getValidationCode()
+            postedData = urlencode(self.formData).encode(encoding='UTF-8')
+            request = Request(self.loginURL, postedData)
+            loginPage = self.opener.open(request)
+            loginTree = etree.HTML(loginPage.read())
+            error = loginTree.xpath('//td[@class="errorTop"]')  # 验证码错误、密码错误等错误都会出现此标志
+        return self.opener
 
+    def getName(self):
+        html = self.opener.open(self.indexURL)
+        main = html.read().decode('gbk')
+        soup = BeautifulSoup(main, 'lxml')
+        content1 = re.sub(r'[(\n)(\t)(\xa0)(\r)(注销)(现在还剩)(学业预警信息)(当前)(XX分XX秒，退出系统！)(用户:)(|)]', '', str(soup))
+        content = BeautifulSoup(content1, 'lxml').find_all('td', nowrap="")
+        data_list = []
+        for data in content:
+            data_list.append(data.text.strip())
+        return str(data_list[1])                    #返回学号姓名
 
-def getOpener():
-    getAccount()
-    error = True
-    while error:
-        if not formDate['v_yzm'] or error:
-            getValidationCode()
-        postedData = urlencode(formDate).encode(encoding='UTF-8')
-        request = Request(loginURL, postedData)
-        loginPage = opener.open(request)
-        loginTree = etree.HTML(loginPage.read())
-        error = loginTree.xpath('//td[@class="errorTop"]')  # 验证码错误、密码错误等错误都会出现此标志
-    return opener
-    
-#获取学籍照片    
-def getXjphoto():
-    picture = opener.open(xjPhotoURL).read()
-    with open(formDate['zjh']+'.jpg','wb') as f:
-        f.write(picture)
-        
-        
-def getxjxxPage():
-    getXjphoto()
-    html = opener.open(xjxxURL)
-    main = html.read().decode('gbk')
-    soup = BeautifulSoup(main, 'lxml')
-    content = soup.find_all('td',class_="fieldName")
-    content1 = soup.find_all('td',width="275")
-    data_list = []
-    data_value = []
-    for data in content:
-        data_list.append(data.text.strip())
-    data_list.remove(data_list[2])              #删除某个空值
-    for value in content1:
-        data_value.append(value.text.strip())
-    #print(data_value)
-    datadic = dict(zip(data_list,data_value))
-    #print(datadic)
-    new_list = [data_value[i:i + 45] for i in range(0, len(data_value), 45)]
-    xls = xlwt.Workbook()
-    sheet = xls.add_sheet('sheet1', cell_overwrite_ok=True)
-    heads = data_list
-    ls = 0
-    for head in heads:
-        sheet.write(0, ls, head)
-        ls += 1
-    i = 1
-    for list in new_list:
-        j = 0
-        for data in list:
-            sheet.write(i, j, data)
-            j += 1
-        i += 1
-    xls.save(formDate['zjh']+'.xls')
-    print('学籍信息写入成功！')
-    
-    
-def getGrade():
-    html = opener.open(gradeURL)
-    main = html.read().decode('gbk')
-    soup = BeautifulSoup(main, 'lxml')
-    content = soup.find_all('td', align="center")
-    data_list = []
-    for data in content:
-        data_list.append(data.text.strip())
-    #print(data_list)
-    new_list = [data_list[i:i + 7] for i in range(0, len(data_list), 7)]
-    book = xlrd.open_workbook(formDate['zjh']+'.xls')
-    newb = copy(book)
-    sheet1 = newb.add_sheet('sheet2', cell_overwrite_ok=True)
-    heads = ['课程号', '课序号', '课程名', '英文课程名', '学分', '课程属性', '成绩']
-    print("准备将数据写入表格...")
-    ii = 0
-    for head in heads:
-        sheet1.write(0, ii, head)
-        ii += 1
-    i = 1
-    for list in new_list:
-        j = 0
-        for data in list:
-            sheet1.write(i, j, data)
-            j += 1
-        i += 1
-    newb.save(formDate['zjh'] + ".xls")
-    print('成绩写入成功！')
+    def floScore(self, score):
+        if score == '优秀':
+            return float(95)
+        elif score == '良好':
+            return float(85)
+        elif score == '中等':
+            return float(75)
+        elif score == '及格':
+            return float(65)
+        elif score == '不及格':
+            return float(0)
+        else:
+            return float(score)
+
+    def GPA(self,score):
+        if score >= 90:
+            return float(4)
+        elif score < 90 and score >= 60:
+            return score / 10. - 5
+        elif score < 60:
+            return float(0)
+
+    def CulJQ(self,list):
+        zxf = 0.
+        zcj = 0.
+        for kemu in list:
+            mc = kemu['课程名']
+            cj = kemu['成绩']
+            xf = kemu['学分']
+            sx = kemu['课程属性']
+            cj1 = self.floScore(cj)
+            xf1 = float(xf)
+            if mc =='体育Ⅰ' or mc== '体育Ⅱ' or mc == '体育Ⅲ' or mc == '体育Ⅳ' or sx == '任选':
+                continue
+            else:
+                zcj += cj1 * xf1
+                zxf += xf1
+            #print("课程名 %s 成绩 %s %s 学分 %s 绩点 %s" % (mc, cj, cj1, xf1, '%.1f' % jd))
+        jjj = zcj / zxf
+        jjd = float('%.2f' % jjj)
+        print('你的加权成绩为：',jjd)
 
 
-getOpener()
-getxjxxPage()
-getGrade()
+    def getXjphoto(self):
+        picture = self.opener.open(self.xjPhotoURL).read()
+        with open(self.getName() + '.jpg', 'wb') as f:
+            f.write(picture)
+
+    def getxjxxPage(self):
+        self.getXjphoto()
+        html = self.opener.open(self.xjxxURL)
+        main = html.read().decode('gbk')
+        soup = BeautifulSoup(main, 'lxml')
+        content = soup.find_all('td', class_="fieldName")
+        content1 = soup.find_all('td', width="275")
+        data_value = []
+        for data in content:
+            self.header_list.append(data.text.strip())
+        self.header_list.remove(self.header_list[2])  # 删除学籍照片占的位置
+        for value in content1:
+            data_value.append(value.text.strip())
+        self.data_list = [data_value[i:i + 45] for i in range(0, len(data_value), 45)]
+        self.SaveExcel(0)
+
+    def getScore(self):
+        html = self.opener.open(self.cjdURL)
+        main = html.read().decode('gbk')
+        soup = BeautifulSoup(main, 'lxml')
+        content = soup.find_all(class_=['report1_2_2', 'report1_2_12'])
+        data_list1 = []
+        for data in content:
+            data_list1.append(data.text.strip())
+        self.header_list = data_list1[29:34]
+        cj_list = data_list1[39:-12]
+        self.data_list = [cj_list[i:i + 5] for i in range(0, len(data_list1), 5)]
+        self.SaveExcel(1)
+
+    def SaveExcel(self, a):
+        a = a
+        if a == 0:
+            sheet = '学籍信息'
+            book = xlwt.Workbook()
+            sheet1 = book.add_sheet(sheet, cell_overwrite_ok=True)
+        elif a == 1:
+            sheet = '成绩单'
+            book = xlrd.open_workbook(self.getName() + '.xls')
+            newb = copy(book)
+            sheet1 = newb.add_sheet(sheet, cell_overwrite_ok=True)
+        else:
+            sheet = '课程'
+            book = xlrd.open_workbook(self.getName() + '.xls')
+            newb = copy(book)
+            sheet1 = newb.add_sheet(sheet, cell_overwrite_ok=True)
+        print("准备将数据写入表格...")
+        if a == 0:
+            k = 0
+            for head in self.header_list:
+                sheet1.write(k, 0, head)
+                k += 1
+            i=1
+            for list in self.data_list:
+                j= 0
+                for data in list:
+                    sheet1.write(j,1,data)
+                    j += 1
+                i += 1
+        else:
+            k = 0
+            for head in self.header_list:
+                sheet1.write(0, k, head)
+                k += 1
+            i = 1
+            for list in self.data_list:
+                j = 0
+                if a == 3:
+                    if j == range(0, 500, 12):
+                        continue
+                        j += 1
+                    else:
+                        for data in list:
+                            sheet1.write(i, j, data)
+                            j += 1
+                        i += 1
+                else:
+                    for data in list:
+                        sheet1.write(i, j, data)
+                        j += 1
+                    i += 1
+        if a == 0:
+            book.save(self.getName() + ".xls")
+        else:
+            newb.save(self.getName() + ".xls")
+        print('写入成功')
+
+    def readExcel(self):
+        data_path = self.path + "/" + self.getName() + ".xls"  # excle表格路径，需传入绝对路径
+        sheetname = '成绩单' # excle表格内sheet名
+        data = xlrd.open_workbook(data_path)  # 打开excel表格
+        table = data.sheet_by_name(sheetname)  # 切换到相应sheet
+        keys = table.row_values(0)  # 第一行作为key值
+        rowNum = table.nrows  # 获取表格行数
+        colNum = table.ncols  # 获取表格列数
+        if rowNum < 2:
+            print("excle内数据行数小于2")
+        else:
+            L = []  # 列表L存放取出的数据
+            for i in range(1, rowNum):  # 从第二行（数据行）开始取数据
+                sheet_data = {}  # 定义一个字典用来存放对应数据
+                for j in (0, 1, 2, 3):  # j对应列值
+                    sheet_data[keys[j]] = table.row_values(i)[j]  # 把第i行第j列的值取出赋给第j列的键值，构成字典
+                L.append(sheet_data)  # 一行值取完之后（一个字典），追加到L列表中
+        #################################################################################
+        keys = self.header_list
+        L1 = []
+        for k in range(len(self.List)):
+            L1 = []
+            for i in range(0, len(self.List[k]) - 1):
+                sheet_data = {}
+                for j in (2, 4, 5, 6):
+                    sheet_data[keys[j]] = self.List[k][i][j]
+                L1.append(sheet_data)
+            self.CulJQ(L1)
+        #################################################################################
+        return L
+
+    def CulGPA(self,list):
+        zjd = 0.
+        zxf = 0.
+        for kemu in list:
+            mc = kemu['课程名']
+            cj = kemu['成绩']
+            xf = kemu['学分']
+            sx = kemu['课程属性']
+            cj1 = self.floScore(cj)
+            xf1 = float(xf)
+            jd = self.GPA(cj1)
+            zjd += jd * xf1
+            zxf = zxf + xf1
+            #print("课程名 %s 成绩 %s %s 学分 %s 绩点 %s" % (mc, cj, cj1, xf1, '%.1f' % jd))
+        jjj = zjd / zxf
+        jjd = float('%.4f' % jjj)
+        print('你的绩点为',jjd)
+
+    def getGrade(self):
+        html = self.opener.open(self.gradeURL)
+        main = html.read().decode('gbk')
+        soup = BeautifulSoup(main, 'lxml')
+        content = soup.find_all('td', class_="pageAlign")
+        header = BeautifulSoup(str(content[0]), 'lxml').find_all('th', class_="sortable")
+        xqcon = soup.find_all('td', valign="middle")
+        self.header_list = []
+        for iteam in header:
+            self.header_list.append(iteam.text.strip())
+        for xq in xqcon:
+            self.xq_list.append(xq.text.strip())
+        data_list = []
+        self.List = ["" for _ in range(len(self.xq_list))]
+        for i in range(0,len(self.xq_list)):
+            con = BeautifulSoup(str(content[i]), 'lxml').find_all('td', align="center")
+            datax_list = []
+            for data in con:
+                datax_list.append(data.text.strip())
+                data_list.append(data.text.strip())
+            self.List[i] = [datax_list[i:i+7] for i in range(0,len(datax_list),7)]
+            self.data_list = [data_list[i:i + 7] for i in range(0, len(data_list), 7)]
+        self.SaveExcel(2)
+        print(self.header_list,self.List)
+        #return [self.xq_list, self.List]
+
+    def printInfo(self):
+        self.getOpener()
+        self.getXjphoto()
+        self.getxjxxPage()
+        self.getScore()
+        self.getGrade()
+        d = self.readExcel()
+        self.CulGPA(d)
+        print('成功')
 
 
+a=UrpHelper('学号', '密码')
+a.printInfo()
